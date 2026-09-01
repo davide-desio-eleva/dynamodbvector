@@ -1,0 +1,202 @@
+[
+  {
+    "ProductId": "JACKET-001",
+    "Name": "StormShield Alpine Jacket",
+    "Category": "outdoor",
+    "Description": "Lightweight waterproof shell designed for hiking in cold and rainy conditions. Three-layer breathable fabric with sealed seams.",
+    "Price": 189,
+    "Available": true
+  },
+  {
+    "ProductId": "JACKET-002",
+    "Name": "ThermoWrap Down Parka",
+    "Category": "outdoor",
+    "Description": "Heavyweight insulated parka filled with 800-fill goose down for extreme cold weather. Rated to minus thirty degrees.",
+    "Price": 349,
+    "Available": true
+  },
+  {
+    "ProductId": "JACKET-003",
+    "Name": "BreezeLite Windbreaker",
+    "Category": "outdoor",
+    "Description": "Ultralight packable wind jacket that folds into its own pocket. Ideal for trail running and cycling in mild conditions.",
+    "Price": 79,
+    "Available": true
+  },
+  {
+    "ProductId": "PANTS-001",
+    "Name": "TrailFlex Hiking Trousers",
+    "Category": "outdoor",
+    "Description": "Stretchy quick-drying hiking trousers with reinforced knees and zip-off legs that convert to shorts.",
+    "Price": 95,
+    "Available": true
+  },
+  {
+    "ProductId": "PANTS-002",
+    "Name": "AquaGuard Rain Pants",
+    "Category": "outdoor",
+    "Description": "Waterproof over-trousers with full side zips so you can pull them on over boots. Lightweight and packable.",
+    "Price": 110,
+    "Available": true
+  },
+  {
+    "ProductId": "BOOT-001",
+    "Name": "SummitGrip Hiking Boots",
+    "Category": "outdoor",
+    "Description": "Mid-cut waterproof hiking boots with Vibram soles for rocky terrain. Ankle support and cushioned insole.",
+    "Price": 215,
+    "Available": true
+  },
+  {
+    "ProductId": "BOOT-002",
+    "Name": "TrailRunner Approach Shoes",
+    "Category": "outdoor",
+    "Description": "Low-cut approach shoes that blend trail running agility with climbing shoe grip on rock slabs.",
+    "Price": 145,
+    "Available": true
+  },
+  {
+    "ProductId": "BACKPACK-001",
+    "Name": "ExpeditionPro 65L Pack",
+    "Category": "outdoor",
+    "Description": "Large capacity backpacking pack with adjustable torso length, rain cover, and multiple access points.",
+    "Price": 265,
+    "Available": true
+  },
+  {
+    "ProductId": "BACKPACK-002",
+    "Name": "DayHike 25L Pack",
+    "Category": "outdoor",
+    "Description": "Compact daypack with hydration sleeve, trekking pole attachments, and breathable mesh back panel.",
+    "Price": 89,
+    "Available": true
+  },
+  {
+    "ProductId": "TENT-001",
+    "Name": "CloudPeak 2P Tent",
+    "Category": "outdoor",
+    "Description": "Two-person three-season tent with aluminum poles and a full-coverage rainfly. Sets up in under five minutes.",
+    "Price": 320,
+    "Available": true
+  },
+  {
+    "ProductId": "SLEEP-001",
+    "Name": "ArcticDream Sleeping Bag",
+    "Category": "outdoor",
+    "Description": "Mummy-shaped down sleeping bag rated to minus fifteen Celsius. Compresses to the size of a football.",
+    "Price": 229,
+    "Available": true
+  },
+  {
+    "ProductId": "SLEEP-002",
+    "Name": "UltraRest Sleeping Pad",
+    "Category": "outdoor",
+    "Description": "Self-inflating camping pad with high R-value insulation. Rolls up small and weighs under 500 grams.",
+    "Price": 85,
+    "Available": true
+  },
+  {
+    "ProductId": "LAYER-001",
+    "Name": "MerinoCore Base Layer Top",
+    "Category": "outdoor",
+    "Description": "Merino wool long-sleeve base layer that regulates body temperature and resists odour on multi-day hikes.",
+    "Price": 75,
+    "Available": true
+  },
+  {
+    "ProductId": "LAYER-002",
+    "Name": "ThermalFleece Mid Layer",
+    "Category": "outdoor",
+    "Description": "Grid-pattern fleece jacket that traps warmth while wicking moisture. Works as a standalone or under a shell.",
+    "Price": 110,
+    "Available": true
+  },
+  {
+    "ProductId": "ACC-001",
+    "Name": "TrekPole Carbon Pair",
+    "Category": "outdoor",
+    "Description": "Collapsible carbon-fibre trekking poles with cork grips and tungsten tips for stability on steep descents.",
+    "Price": 130,
+    "Available": true
+  },
+  {
+    "ProductId": "ACC-002",
+    "Name": "HeadTorch 350",
+    "Category": "outdoor",
+    "Description": "Rechargeable LED headlamp with 350 lumens, red-light mode, and adjustable beam for night hiking.",
+    "Price": 45,
+    "Available": true
+  },
+  {
+    "ProductId": "ACC-003",
+    "Name": "HydroFlask Trail Bottle",
+    "Category": "outdoor",
+    "Description": "Insulated stainless steel water bottle that keeps drinks cold for 24 hours. Leak-proof sport cap.",
+    "Price": 38,
+    "Available": true
+  },
+  {
+    "ProductId": "ACC-004",
+    "Name": "SolarCharger Panel",
+    "Category": "outdoor",
+    "Description": "Foldable solar panel that charges phones and GPS devices on the trail. Lightweight and weather resistant.",
+    "Price": 65,
+    "Available": true
+  },
+  {
+    "ProductId": "COOK-001",
+    "Name": "JetBoil Rapid Stove",
+    "Category": "outdoor",
+    "Description": "Integrated canister stove system that boils water in two minutes. All-in-one pot and burner design.",
+    "Price": 115,
+    "Available": true
+  },
+  {
+    "ProductId": "COOK-002",
+    "Name": "TitanCook Pot Set",
+    "Category": "outdoor",
+    "Description": "Nesting titanium cookware set with pot, pan, and folding utensils. Weighs under 200 grams total.",
+    "Price": 70,
+    "Available": true
+  },
+  {
+    "ProductId": "SHOE-001",
+    "Name": "UrbanStride Sneakers",
+    "Category": "casual",
+    "Description": "Minimalist white leather sneakers for everyday city wear. Cushioned insole and durable rubber outsole.",
+    "Price": 120,
+    "Available": true
+  },
+  {
+    "ProductId": "SHOE-002",
+    "Name": "ComfortWalk Sandals",
+    "Category": "casual",
+    "Description": "Contoured footbed sandals with adjustable straps for warm-weather walking and travel.",
+    "Price": 65,
+    "Available": true
+  },
+  {
+    "ProductId": "BAG-001",
+    "Name": "WeekendDuffel Travel Bag",
+    "Category": "travel",
+    "Description": "Spacious duffel bag with a shoe compartment and padded shoulder strap. Fits as airline carry-on.",
+    "Price": 95,
+    "Available": true
+  },
+  {
+    "ProductId": "BAG-002",
+    "Name": "SecureSlim Crossbody",
+    "Category": "travel",
+    "Description": "Anti-theft crossbody bag with RFID-blocking pocket, slash-proof strap, and hidden zippers.",
+    "Price": 55,
+    "Available": true
+  },
+  {
+    "ProductId": "ELEC-001",
+    "Name": "TrailNav GPS Watch",
+    "Category": "electronics",
+    "Description": "Rugged GPS sports watch with topographic maps, heart rate monitor, and week-long battery life.",
+    "Price": 299,
+    "Available": true
+  }
+]

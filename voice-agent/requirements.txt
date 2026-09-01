@@ -1,0 +1,4 @@
+strands-agents[bidi]
+fastapi
+uvicorn[standard]
+boto3
