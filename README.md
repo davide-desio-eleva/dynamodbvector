@@ -1,5 +1,7 @@
 # DynamoDB Vector Search — Semantic Product Search Demo
 
+> Original post here: [Your database is an AI tool: semantic search with Amazon DynamoDB Vector Search](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff)
+
 A sample application that shows how to use **Amazon DynamoDB native vector search** to build semantic search over application data, and how to expose that capability to AI agents as a tool.
 
 It demonstrates the same idea through three interfaces:
@@ -169,4 +171,4 @@ npx ampx sandbox delete
 
 ## Related
 
-See [`blog.md`](./blog.md) for the full walkthrough of the pattern and the reasoning behind it.
+See [`blog.md`](./blog.md) for the full walkthrough of the pattern and the reasoning behind it, or read the [original post on dev.to](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff).

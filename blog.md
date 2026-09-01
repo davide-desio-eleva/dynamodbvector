@@ -1,3 +1,5 @@
+> Original post here: [Your database is an AI tool: semantic search with Amazon DynamoDB Vector Search](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff)
+
 # 🏃 TL;DR
 
 It's been a while since I wrote an article that wasn't about [KiroGraph](https://github.com/davide-desio-eleva/kirograph)! 
