@@ -1,8 +1,10 @@
-# DynamoDB Vector Search — Semantic Product Search Demo
+# DynamoDB Vector Search — Semantic Search + Voice Agent Demo
 
-> Original post here: [Your database is an AI tool: semantic search with Amazon DynamoDB Vector Search](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff)
+> Companion posts:
+> - [Your database is an AI tool: semantic search with Amazon DynamoDB Vector Search](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff)
+> - Deploying the voice agent to Amazon Bedrock AgentCore Runtime (see [`blog-2.md`](./blog-2.md))
 
-A sample application that shows how to use **Amazon DynamoDB native vector search** to build semantic search over application data, and how to expose that capability to AI agents as a tool.
+A sample application that shows how to use **Amazon DynamoDB native vector search** to build semantic search over application data, how to expose that capability to AI agents as a tool, and how to deploy a real-time voice agent for it on **Amazon Bedrock AgentCore Runtime** — all inside a single AWS Amplify Gen 2 backend.
 
 It demonstrates the same idea through three interfaces:
 
