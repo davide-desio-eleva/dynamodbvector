@@ -1,14 +1,12 @@
-> Original post here: [Deploying a real-time voice agent with AgentCore Runtime and Amplify Gen 2](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl)
-
 # 🏃 TL;DR
 
-In the [previous article](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff) I built a semantic product search on top of Amazon DynamoDB Vector Search, and then gave that capability to an AI agent as a tool. One of the things I explored at the end was a voice agent: a Strands `BidiAgent` powered by Amazon Nova Sonic that could search the catalog by voice.
+In the [previous article](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff) I built a semantic product search on top of `Amazon DynamoDB` Vector Search, and then gave that capability to an AI agent as a tool. One of the things I explored at the end was a voice agent: a Strands `BidiAgent` powered by `Amazon Nova Sonic` that could search the catalog by voice.
 
 That voice agent ran locally. A Python server on my laptop, a WebSocket, my microphone. Great for a demo, but it lives on my machine.
 
 **So the question for this article is: how do I actually deploy it?**
 
-I want the voice agent to run on AWS, I want it authenticated with the same users my app already has, and I want it to be part of the same Amplify Gen 2 backend as everything else. No separate project, no separate auth, no separate deploy command.
+I want the voice agent to run on AWS, I want it authenticated with the same users my app already has, and I want it to be part of the same `Amplify Gen 2` backend as everything else. No separate project, no separate auth, no separate deploy command.
 
 It turns out this fits together really nicely with **Amazon Bedrock AgentCore Runtime**. Let me walk through it.
 
@@ -16,7 +14,7 @@ It turns out this fits together really nicely with **Amazon Bedrock AgentCore Ru
 
 ## 🎙️ Where we left off
 
-Quick recap of the voice agent. It's a Python app: a FastAPI server that exposes a WebSocket on `/ws`, and a Strands `BidiAgent` wired to Nova Sonic with our `search_products` tool.
+Quick recap of the voice agent: it's a Python app: a FastAPI server that exposes a WebSocket on `/ws`, and a Strands `BidiAgent` wired to `Amazon Nova Sonic` with our `search_products` tool.
 
 ```python
 from fastapi import FastAPI, WebSocket
@@ -45,26 +43,30 @@ async def voice_chat(websocket: WebSocket):
     )
 ```
 
-Locally I ran this with `uvicorn`, the browser connected to `ws://127.0.0.1:8080/ws`, and everything worked. Now I want the exact same code running on AWS.
+Locally I ran this with `uvicorn`, the browser connected to `ws://127.0.0.1:8080/ws`, and everything worked. 
+**Now I want the exact same code running on AWS.**
 
-## 🧩 What is AgentCore Runtime, and why it fits
+## 🧩 What is Amazon Bedrock AgentCore Runtime, and why it fits
 
 `Amazon Bedrock AgentCore Runtime` is a serverless runtime purpose-built for hosting AI agents. It's framework-agnostic (Strands, LangGraph, CrewAI, whatever) and, importantly for us, it supports **bidirectional streaming over WebSocket**, which is exactly what a real-time voice agent needs.
 
-The contract is refreshingly simple: you give it a container that listens on **port 8080** and exposes a WebSocket at **`/ws`**, plus a `/ping` health check. That's already how our agent is written. AgentCore handles the rest: session isolation, scaling, authentication, and the public WebSocket endpoint.
+`Amazon Bedrock AgentCore Runtime` contract is simple, you give it a container that listens on **port 8080** and exposes a WebSocket at **`/ws`**, plus a `/ping` health check. That's already how our agent is written. 
+
+**`Amazon Bedrock AgentCore`  handles the rest: session isolation, scaling, authentication, and the public WebSocket endpoint.**
 
 So the plan is:
 
-1. Package the voice agent as a container.
+1. Package the voice agent as a docker container.
 2. Deploy it to AgentCore Runtime.
-3. Authenticate it with the Cognito user pool Amplify already created.
+3. **Authenticate it with the Cognito user pool Amplify already created**.
 4. Connect the browser to it.
 
-And because **Amplify Gen 2 is CDK under the hood**, I can do all of this inside the same `amplify/backend.ts` I already have. No second project.
+And because **`Amplify Gen 2` is CDK under the hood**, I can do all of this inside the same `amplify/backend.ts` I already have, without a second project or a specific `CDK`/`CloudFormation`/Terraform project.
 
 ## 📦 Step 1: containerize the agent
 
-AgentCore Runtime runs **ARM64** containers. The Dockerfile is minimal:
+`Amazon Bedrock AgentCore Runtime` runs **ARM64** containers. 
+The Dockerfile is minimal:
 
 ```dockerfile
 FROM --platform=linux/arm64 python:3.12-slim
@@ -88,9 +90,9 @@ uvicorn.run(app, host=host, port=8080)
 
 ## 🏗️ Step 2: deploy it from the Amplify backend
 
-Here's the part I like. Since Amplify Gen 2 backends are CDK, I can build the image and create the runtime right in `backend.ts`.
+Here's the part I like: again, since `Amplify Gen 2` backends are `CDK` constructs, I can build the image and create the runtime right in my `backend.ts`.
 
-First, build the ARM64 image and push it to ECR. The CDK `DockerImageAsset` does all of that during deployment, no manual `docker build` or `docker push`:
+First, we should build the ARM64 image and push it to `Amazon ECR`. The `CDK` `DockerImageAsset` does all of that during deployment, no manual `docker build` or `docker push`:
 
 ```typescript
 import * as ecrAssets from "aws-cdk-lib/aws-ecr-assets";
@@ -101,7 +103,7 @@ const voiceImage = new ecrAssets.DockerImageAsset(voiceStack, "VoiceAgentImage",
 });
 ```
 
-Then an execution role for the runtime. It needs to pull the image, call Bedrock (Nova Sonic for voice, plus Nova Micro and Titan for the search tool), and run `SearchVectors` on the DynamoDB table:
+Then we need an execution role for the runtime: it needs to pull the image, call `Amazon Bedrock` (`Amazon Nova Sonic 2` for voice, plus `Amazon Nova Micro` and `Amazon Titan Embeddings` for the search tool), and run `SearchVectors` on the DynamoDB table:
 
 ```typescript
 const voiceRuntimeRole = new iam.Role(voiceStack, "VoiceAgentRuntimeRole", {
@@ -135,7 +137,7 @@ voiceRuntimeRole.addToPolicy(new iam.PolicyStatement({
 }));
 ```
 
-And finally the runtime itself. Here I deliberately reach for the L1 `CfnRuntime` construct. Level 1 (L1) constructs map directly one-to-one to raw CloudFormation resources, while Level 2 (L2) constructs provide higher-level, object-oriented abstractions with built-in security best practices and helper methods. For a service this new I prefer the L1: it maps straight onto the CloudFormation resource, so what I write is exactly what gets deployed, with no abstraction deciding things for me.
+And finally we need the runtime itself. Here I deliberately reach for the L1 `CfnRuntime` construct. Level 1 (L1) constructs map directly one-to-one to raw CloudFormation resources, while Level 2 (L2) constructs provide higher-level, object-oriented abstractions with built-in security best practices and helper methods. For a service this new I prefer the L1: it maps straight onto the `CloudFormation` resource, so what I write is exactly what gets deployed, with no abstraction deciding things for me.
 
 ```typescript
 import { CfnRuntime } from "aws-cdk-lib/aws-bedrockagentcore";
@@ -169,9 +171,9 @@ One detail on the execution role: alongside `grantPull()` (which covers `BatchGe
 
 ## 🔐 Step 3: reuse the Amplify Cognito user pool
 
-This is where the "same backend" idea pays off. My app already has authentication: Amplify created a Cognito user pool and users sign in to use the chat and search. I don't want a second identity system for the voice agent.
+This is where the "same backend" idea pays off as ny app already has authentication: `Amplify` created a `Amazon Cognito` user pool and users sign in to use the chat and search. I don't want a second identity system for the voice agent.
 
-AgentCore Runtime supports **JWT inbound authorization**. You point it at an OIDC discovery URL and a list of allowed clients. A Cognito user pool is an OIDC provider, so I can wire the runtime straight to it:
+`AgentCore Runtime` supports **JWT inbound authorization**. You point it at an OIDC discovery URL and a list of allowed clients. An `Amazon Cognito` user pool is also an OIDC provider, so I can wire the runtime straight to it:
 
 ```typescript
 const userPool = backend.auth.resources.userPool;
@@ -188,7 +190,7 @@ Now the same user who is signed into the app can authenticate to the voice agent
 
 ## 🔄 Granting the user permission to invoke the runtime
 
-The signed-in user connects to the runtime, so the Cognito **authenticated role** needs permission to invoke it. There's a nice detail in how you wire this up: the voice stack already depends on the auth stack (it reads the user pool), so you want the dependency to stay one-directional. The clean way is to define the policy **inside the voice stack** and attach it to the existing auth role by reference:
+The signed-in user connects to the runtime, so the `Amazon Cognito` **authenticated role** needs permission to invoke it. There's a nice detail in how you wire this up: the voice stack already depends on the auth stack (it reads the user pool), so you want the dependency to stay one-directional. The clean way is to define the policy **inside the voice stack** and attach it to the existing auth role by reference:
 
 ```typescript
 new iam.Policy(voiceStack, "VoiceAgentInvokePolicy", {
@@ -212,13 +214,13 @@ The policy is created in the voice stack, which is allowed to reference the auth
 
 ## 🌐 Step 4: connect the browser
 
-The last piece is the frontend. Locally the browser connected to `ws://127.0.0.1:8080/ws`. Deployed, it connects to the AgentCore endpoint:
+The last piece is the frontend. Locally the browser connected to `ws://127.0.0.1:8080/ws`. Deployed, it connects to the `AgentCore` endpoint:
 
 ```text
 wss://bedrock-agentcore.<region>.amazonaws.com/runtimes/<runtimeArn>/ws
 ```
 
-The interesting question is authentication. AgentCore accepts SigV4 (signed headers or a presigned URL) or an OAuth bearer token. From a **browser**, SigV4 on a WebSocket is awkward, because the browser's WebSocket API doesn't let you set custom headers on the handshake.
+The interesting question is authentication. `AgentCore` accepts `SigV4` (signed headers or a presigned URL) or an OAuth bearer token. From a **browser**, `SigV4` on a WebSocket is awkward, because the browser's WebSocket API doesn't let you set custom headers on the handshake.
 
 AWS documents a clean workaround for exactly this case: pass the bearer token through the `Sec-WebSocket-Protocol` header. The token is base64url-encoded and sent as a subprotocol, alongside a sentinel subprotocol:
 
@@ -244,30 +246,30 @@ const protocols = [
 const ws = new WebSocket(url, protocols);
 ```
 
-That Cognito access token is exactly what the runtime's JWT authorizer validates. The user's `client_id` claim has to match the `allowedClients` we configured, which it does, because it's the same user pool client Amplify gave us.
+That `Amazon Cognito` access token is exactly what the runtime's JWT authorizer validates. The user's `client_id` claim has to match the `allowedClients` we configured, which it does, because it's the same user pool client `Amplify` gave us.
 
 From here on, the rest of the frontend doesn't change at all. The same code that captured microphone audio, streamed PCM frames, and played back the agent's voice against the local server now works against AgentCore. Only the URL and the auth changed.
 
 ## 🗺️ The whole picture
 
-Everything lives in one Amplify Gen 2 backend and deploys with a single `npx ampx sandbox`:
+Everything lives in one `Amplify Gen 2` backend and deploys with a single `npx ampx sandbox`:
 
 ![Image description](https://dev-to-uploads.s3.us-east-2.amazonaws.com/uploads/articles/eah7z7m8dscbbrzq5hut.png)
 
-The browser signs in once with Cognito. That identity gets it into the app, into the search API, into the chat, and now into the voice agent too.
+The browser signs in once with `Amazon Cognito`. That identity gets it into the app, into the search API, into the chat, and now into the voice agent too.
 
-## 🧠 What I take away from this
+## 🧠 What I take away from this project
 
 A couple of things stood out while building this.
 
-The first is how little the agent code changed between local and deployed. The same FastAPI + Strands `BidiAgent` server ran on my laptop and, unchanged, inside AgentCore. The container contract (port 8080, `/ws`, `/ping`) is simple enough that "make it a container" was the only real step.
+The first is how little the agent code changed between local and deployed. The same FastAPI + Strands `BidiAgent` server ran on my laptop and, unchanged, inside `Amazon Bedrock AgentCore`. The container contract (port 8080, `/ws`, `/ping`) is simple enough that "make it a container" was the only real step.
 
-**The second is the value of keeping it all in one backend. Because Amplify Gen 2 is CDK, the runtime, its image, its IAM, and its wiring to Cognito are all just constructs next to my data and auth definitions. The voice agent isn't a separate system I have to operate, it's another resource in the same deploy, sharing the same users.**
+**The second is the value of keeping it all in one backend. Because `Amplify Gen 2` is `CDK`, the runtime, its image, its `IAM`, and its wiring to `Amazon Cognito` are all just constructs next to my data and auth definitions. The voice agent isn't a separate system I have to operate, it's another resource in the same deploy, sharing the same users.**
 
 The voice agent that used to live on my laptop now runs on AWS, authenticated with the users my app already had, deployed with the same command as everything else.
 
-**Your Amplify Gen 2 DynamoDb database was already an AI tool.
-Now the agent that talks to it is serverless and, thanks to CDK, it's wired to Amplify Gen 2 deployments too.**
+**Your `Amplify Gen 2` deployed `Amazon DynamoDb` database was already an AI tool.
+Now the agent that talks to it is serverless and, thanks to `CDK`, it's wired to `Amplify Gen 2` deployments too.**
 
 {% github https://github.com/davide-desio-eleva/dynamodbvector %}
 
