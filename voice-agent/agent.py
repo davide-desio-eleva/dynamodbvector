@@ -228,7 +228,12 @@ async def voice_chat(websocket: WebSocket) -> None:
 if __name__ == "__main__":
     import uvicorn
 
-    print(f"Starting voice agent server on port 8080...")
+    # AgentCore Runtime runs the container and expects the server on 0.0.0.0:8080.
+    # Locally we bind to 127.0.0.1 unless CONTAINER_ENV is set.
+    host = "0.0.0.0" if os.getenv("CONTAINER_ENV") else "127.0.0.1"
+
+    print("Starting voice agent server on port 8080...")
+    print(f"Binding to: {host}")
     print(f"Bedrock Region: {BEDROCK_REGION}")
     print(f"Table: {TABLE_NAME} (region: {TABLE_REGION})")
-    uvicorn.run(app, host="127.0.0.1", port=8080)
+    uvicorn.run(app, host=host, port=8080)

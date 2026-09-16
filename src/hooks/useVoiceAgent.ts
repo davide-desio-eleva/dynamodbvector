@@ -5,8 +5,7 @@
  */
 import { useState, useRef, useCallback, useEffect } from "react";
 import audioCaptureProcessorUrl from "../audio-processor.worklet.js?url";
-
-const WS_URL = "ws://127.0.0.1:8080/ws";
+import { buildVoiceConnection } from "../voice-connection";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
@@ -170,7 +169,10 @@ export function useVoiceAgent() {
   const connect = useCallback(async () => {
     setState((p) => ({ ...p, error: null }));
     try {
-      const ws = new WebSocket(WS_URL);
+      // Local dev: plain ws:// URL. Deployed: AgentCore URL with the Cognito
+      // bearer token passed via the Sec-WebSocket-Protocol subprotocol.
+      const { url, protocols } = await buildVoiceConnection();
+      const ws = protocols ? new WebSocket(url, protocols) : new WebSocket(url);
       wsRef.current = ws;
 
       ws.onopen = () =>
@@ -185,7 +187,8 @@ export function useVoiceAgent() {
       ws.onerror = () =>
         setState((p) => ({
           ...p,
-          error: "WebSocket connection failed. Is the voice agent running on port 8080?",
+          error:
+            "WebSocket connection failed. If running locally, is the voice agent started (npm run dev:agent)?",
         }));
       ws.onmessage = handleMessage;
     } catch (err: any) {

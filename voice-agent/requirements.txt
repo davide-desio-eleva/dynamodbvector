@@ -1,4 +1,6 @@
-strands-agents[bidi]
-fastapi
-uvicorn[standard]
-boto3
+# Pinned to the versions verified locally. The container must match, otherwise
+# APIs like BidiNovaSonicModel may move between strands-agents releases.
+strands-agents[bidi]==1.54.0
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+boto3==1.43.82
