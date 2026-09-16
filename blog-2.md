@@ -1,3 +1,5 @@
+> Original post here: [Deploying a real-time voice agent with AgentCore Runtime and Amplify Gen 2](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl)
+
 # 🏃 TL;DR
 
 In the [previous article](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff) I built a semantic product search on top of Amazon DynamoDB Vector Search, and then gave that capability to an AI agent as a tool. One of the things I explored at the end was a voice agent: a Strands `BidiAgent` powered by Amazon Nova Sonic that could search the catalog by voice.
@@ -9,6 +11,8 @@ That voice agent ran locally. A Python server on my laptop, a WebSocket, my micr
 I want the voice agent to run on AWS, I want it authenticated with the same users my app already has, and I want it to be part of the same Amplify Gen 2 backend as everything else. No separate project, no separate auth, no separate deploy command.
 
 It turns out this fits together really nicely with **Amazon Bedrock AgentCore Runtime**. Let me walk through it.
+
+{% github https://github.com/davide-desio-eleva/dynamodbvector %}
 
 ## 🎙️ Where we left off
 
@@ -264,6 +268,8 @@ The voice agent that used to live on my laptop now runs on AWS, authenticated wi
 
 **Your Amplify Gen 2 DynamoDb database was already an AI tool.
 Now the agent that talks to it is serverless and, thanks to CDK, it's wired to Amplify Gen 2 deployments too.**
+
+{% github https://github.com/davide-desio-eleva/dynamodbvector %}
 
 ## 🙋 Who am I
 I'm [D. De Sio](https://www.linkedin.com/in/desiodavide) and I work as a Head of Software Engineering in [Eleva](https://eleva.it/).

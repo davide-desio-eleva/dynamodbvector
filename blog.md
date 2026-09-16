@@ -12,7 +12,7 @@ Let's take something very simple: imagine an e-commerce application with product
 
 A user doesn't necessarily want to search using product names or exact keywords. They might say:
 
-> "I'm going hiking in Iceland in October. I need something lightweight, waterproof and I'd like to stay under €250."
+> "I'm going hiking in Iceland in October. I need something lightweight, waterproof and I'd like to stay under €200."
 
 This is where things get interesting: the user isn't really telling us what words to search for, but what they're looking for. And that's exactly the kind of problem where semantic search can make a big difference.
 
@@ -23,6 +23,10 @@ So instead of adding a separate vector database just because our AI application 
 That's what I want to explore in this article.
 
 And then, once we have that capability, we'll make it available to an AI agent as a **tool**.
+
+See this GitHub repo for a practical example of the application shown in this article.
+
+{% github https://github.com/davide-desio-eleva/dynamodbvector %}
 
 ## 🔍 Why semantic search for application data?
 
@@ -91,7 +95,7 @@ So our search isn't just:
 
 It can become:
 
-> "Find products semantically similar to this request, where the price is below €250 and the product is currently available."
+> "Find products semantically similar to this request, where the price is below €200 and the product is currently available."
 
 That's a much more useful query for an application, and it's where `DynamoDB Vector Search` becomes more than just a way to store embeddings: it lets us combine **vector similarity with the operational attributes that already drive the application**.
 
@@ -191,7 +195,7 @@ The embedding model produces a 1024-dimensional vector from the product's name a
 
 Let's go back to the original request:
 
-> "I'm going hiking in Iceland in October. I need something lightweight, waterproof and I'd like to stay under €250."
+> "I'm going hiking in Iceland in October. I need something lightweight, waterproof and I'd like to stay under €200."
 
 There are really two different things happening here.
 
@@ -207,7 +211,7 @@ cold weather
 The second part is a normal application constraint:
 
 ```text
-price <= 250
+price <= 200
 available = true
 ```
 
@@ -411,9 +415,9 @@ Now let's put all of this together and see it in action.
 
 The user opens the chat and writes:
 
-> "I'm going hiking in Iceland in October. I need something lightweight, waterproof and I'd like to stay under €250."
+> "I'm going hiking in Iceland in October. I need something lightweight, waterproof and I'd like to stay under €200."
 
-The agent reads the message, decides it needs product data, and calls the `searchProducts` tool with the user's request. Behind the scenes, our Lambda does its four-step job: Nova Micro separates the semantic intent from the price constraint, Titan Embeddings generates a vector, DynamoDB `SearchVectors` finds the closest products, and the application filters out anything over €250.
+The agent reads the message, decides it needs product data, and calls the `searchProducts` tool with the user's request. Behind the scenes, our Lambda does its four-step job: Nova Micro separates the semantic intent from the price constraint, Titan Embeddings generates a vector, DynamoDB `SearchVectors` finds the closest products, and the application filters out anything over €200.
 
 The results flow back to the agent, which presents them conversationally:
 
@@ -622,11 +626,13 @@ We can take the database that already contains our application entities, make th
 
 The result isn't really a new "AI database" because it's still our application database: **The vector isn't the destination. It's a new way for an AI agent to discover the data your application already owns.**
 
-Your database is an AI tool.
+Your database is an AI tool. See this GitHub repo for a practical example of the application shown in this article.
+
+{% github https://github.com/davide-desio-eleva/dynamodbvector %}
 
 ## 🙋 Who am I
 I'm [D. De Sio](https://www.linkedin.com/in/desiodavide) and I work as a Head of Software Engineering in [Eleva](https://eleva.it/).
-As of June 2026, I’m an [AWS Certified Solution Architect Professional](https://www.credly.com/badges/9929fdf2-7a3d-4013-9de6-57c80e4920b9/public_url) and [AWS Certified DevOps Engineer Professional](https://www.credly.com/badges/8c5a1487-191b-429e-8c2d-7cee43bf316b/public_url), but also a [User Group Leader (in Pavia)](https://www.linkedin.com/company/aws-user-group-pavia/), an **AWS Community Builder** and, last but not least, a #serverless enthusiast.
+As of September 2026, I’m an [AWS Certified Solution Architect Professional](https://www.credly.com/badges/9929fdf2-7a3d-4013-9de6-57c80e4920b9/public_url) and [AWS Certified DevOps Engineer Professional](https://www.credly.com/badges/8c5a1487-191b-429e-8c2d-7cee43bf316b/public_url), but also a [User Group Leader (in Pavia)](https://www.linkedin.com/company/aws-user-group-pavia/), an **AWS Community Builder** and, last but not least, a #serverless enthusiast.
 
 ![Image description](https://dev-to-uploads.s3.us-east-2.amazonaws.com/uploads/articles/9vr37xpyf1qmralxmdfi.png)
 

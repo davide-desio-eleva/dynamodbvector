@@ -8,7 +8,7 @@ It demonstrates the same idea through three interfaces:
 
 1. **Search** — type a natural language query and get semantically matched products
 2. **Chat** — a conversational AI assistant (Amplify AI Kit) that calls the search as a tool
-3. **Voice** — a real-time voice agent (Strands + Amazon Nova 2 Sonic) that searches by speech
+3. **Voice** — a real-time voice agent (Strands + Amazon Nova 2 Sonic) that searches by speech, runnable locally or deployed to Amazon Bedrock AgentCore Runtime
 
 > [!WARNING]
 > **This project is experimental.** It was built to explain how DynamoDB Vector Search works and how to combine it with AI agents. It is **not production ready**: it skips hardening, error handling, cost controls, and security review that a real workload would need. Use it to learn from and to adapt, not to deploy as-is.
@@ -55,7 +55,7 @@ Behind the scenes the search does four things:
 
 - **Search** goes through an Amplify Gen 2 custom query backed by a Lambda.
 - **Chat** uses the Amplify AI Kit conversation route with the same query exposed as a data tool.
-- **Voice** runs locally: a Python FastAPI server hosts a Strands `BidiAgent` with Nova 2 Sonic and the same search logic as a Python `@tool`.
+- **Voice** is a Python FastAPI server hosting a Strands `BidiAgent` with Nova 2 Sonic and the same search logic as a Python `@tool`. It runs locally during development, or gets deployed to **Amazon Bedrock AgentCore Runtime** as part of the same Amplify backend (containerized, WebSocket streaming, authenticated with the same Cognito user pool).
 
 ## Tech stack
 
@@ -63,7 +63,7 @@ Behind the scenes the search does four things:
 - **Backend**: AWS Amplify Gen 2 (Auth, Data/AppSync, Lambda)
 - **Vector store**: Amazon DynamoDB vector index (`SearchVectors` API)
 - **Models**: Amazon Titan Text Embeddings V2, Amazon Nova Micro, Amazon Nova Lite (chat), Amazon Nova 2 Sonic (voice)
-- **Voice agent**: Strands Agents (`BidiAgent`) + FastAPI
+- **Voice agent**: Strands Agents (`BidiAgent`) + FastAPI, deployable on Amazon Bedrock AgentCore Runtime (ARM64 container built with CDK `DockerImageAsset`)
 
 ## Prerequisites
 
@@ -74,7 +74,8 @@ Behind the scenes the search does four things:
   - Titan Text Embeddings V2 and Nova Micro (used by search, in the table region)
   - Nova Lite (used by the chat assistant)
   - Nova 2 Sonic (used by the voice agent — check region availability)
-- Python 3.12+ (only for the voice agent)
+- Python 3.12+ (only for running the voice agent locally)
+- Docker (only to deploy the voice agent to AgentCore — CDK builds the ARM64 image)
 
 ## Getting started
 
@@ -86,7 +87,7 @@ npm install
 
 ### 2. Deploy the Amplify backend (sandbox)
 
-This provisions Cognito, AppSync, the DynamoDB table, the vector index (via a custom resource), and the Lambda functions. It also generates `amplify_outputs.json`.
+This provisions Cognito, AppSync, the DynamoDB table, the vector index (via a custom resource), the Lambda functions, and the voice agent on AgentCore Runtime (it builds the ARM64 container from `voice-agent/`, so Docker must be running). It also generates `amplify_outputs.json`.
 
 ```bash
 npx ampx sandbox
@@ -130,6 +131,15 @@ The script reads the table name from `amplify_outputs.json` automatically (or pa
 
 > Use headphones for the voice agent to avoid audio feedback.
 
+### Voice agent: local vs deployed
+
+The frontend picks the voice endpoint automatically based on `amplify_outputs.json`:
+
+- If `custom.VoiceAgentRuntimeArn` is present (the sandbox deployed the AgentCore Runtime), the browser connects to the **deployed** agent over a WebSocket authenticated with the signed-in user's Cognito token (passed via the `Sec-WebSocket-Protocol` subprotocol).
+- Otherwise it falls back to the **local** agent on `ws://127.0.0.1:8080/ws` (the `npm run dev:agent` server above).
+
+So `npm run dev:agent` is only needed when iterating on the agent locally. Once the sandbox has deployed the runtime, the **Voice** tab talks to AgentCore with no local server running.
+
 ## Project structure
 
 ```
@@ -146,12 +156,15 @@ The script reads the table name from `amplify_outputs.json` automatically (or pa
 ├── src/                          # React frontend
 │   ├── components/               # SearchBar, ProductCard, ChatView, VoiceView, ...
 │   ├── hooks/useVoiceAgent.ts    # Microphone capture + WebSocket + audio playback
+│   ├── voice-connection.ts       # Builds the local or AgentCore (signed) WebSocket URL
 │   └── App.tsx                   # Search / Chat / Voice tabs
-├── voice-agent/                  # Local Python voice agent
+├── voice-agent/                  # Python voice agent (local + AgentCore container)
 │   ├── agent.py                  # Strands BidiAgent + Nova 2 Sonic + search_products tool
+│   ├── Dockerfile                # ARM64 image for AgentCore Runtime
 │   ├── requirements.txt
 │   └── start.sh
-└── blog.md                       # The companion article
+├── blog.md                       # Companion article 1: DynamoDB Vector Search
+└── blog-2.md                     # Companion article 2: deploying the voice agent to AgentCore
 ```
 
 ## Notes on DynamoDB Vector Search
@@ -160,6 +173,13 @@ The script reads the table name from `amplify_outputs.json` automatically (or pa
 - At the time of writing, CloudFormation does not support the `VectorIndexes` property, so the index is created with an SDK call (`UpdateTable`) via a CDK `AwsCustomResource`.
 - `SearchConditionExpression` currently supports equality filters only. Range filters (like `price <= 200`) are applied in application code after the search, which is why the demo fetches more results than it returns.
 - The query vector must come from the same embedding model and dimension count as the stored vectors.
+
+## Notes on the AgentCore voice agent
+
+- AgentCore Runtime expects an **ARM64** container listening on port 8080, exposing a WebSocket at `/ws` and a health check at `/ping`.
+- The runtime protocol is `HTTP` (valid values: `HTTP`, `A2A`, `AGUI`, `MCP`). WebSocket bidirectional streaming runs on top of the HTTP server protocol — there is no `WEBSOCKET` protocol value.
+- Inbound auth uses a JWT authorizer pointed at the Amplify Cognito user pool's OIDC discovery URL, so the same signed-in users can reach the agent.
+- Browsers can't set custom headers on a WebSocket handshake, so the Cognito bearer token is passed via the `Sec-WebSocket-Protocol` subprotocol (base64url-encoded).
 
 ## Cleanup
 
@@ -171,4 +191,7 @@ npx ampx sandbox delete
 
 ## Related
 
-See [`blog.md`](./blog.md) for the full walkthrough of the pattern and the reasoning behind it, or read the [original post on dev.to](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff).
+Two companion articles walk through this project:
+
+- [`blog.md`](./blog.md) — DynamoDB Vector Search, semantic search, and exposing it to an AI agent as a tool ([original post on dev.to](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff))
+- [`blog-2.md`](./blog-2.md) — Deploying a real-time voice agent with AgentCore Runtime and Amplify Gen 2 ([original post on dev.to](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl))
