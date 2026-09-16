@@ -1,8 +1,8 @@
-# DynamoDB Vector Search — Semantic Search + Voice Agent Demo
+# Semantic Search & Voice Agents on AWS: Amazon DynamoDB Vector Search, Amplify Gen 2, Amazon AgentCore & Amazon Nova Sonic
 
 > Companion posts:
 > - [Your database is an AI tool: semantic search with Amazon DynamoDB Vector Search](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff)
-> - Deploying the voice agent to Amazon Bedrock AgentCore Runtime (see [`blog-2.md`](./blog-2.md))
+> - [Deploying a real-time voice agent with AgentCore Runtime and Amplify Gen 2 original post on dev.to](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl)
 
 A sample application that shows how to use **Amazon DynamoDB native vector search** to build semantic search over application data, how to expose that capability to AI agents as a tool, and how to deploy a real-time voice agent for it on **Amazon Bedrock AgentCore Runtime** — all inside a single AWS Amplify Gen 2 backend.
 
