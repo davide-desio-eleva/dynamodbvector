@@ -6,13 +6,22 @@ for real-time voice conversations with product search capability.
 
 import os
 import json
+import uuid
+import base64
 import boto3
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models.bedrock import BedrockNovaSonicModel
 from strands.experimental.bidi.tools import stop_conversation
 from strands import tool
+from bedrock_agentcore.memory.integrations.strands.config import (
+    AgentCoreMemoryConfig,
+)
+from bedrock_agentcore.memory.integrations.strands.session_manager import (
+    AgentCoreMemorySessionManager,
+)
+from bedrock_agentcore.memory.client import MemoryClient
 
 # ── Configuration ────────────────────────────────────────────────────────
 BEDROCK_REGION = os.getenv("BEDROCK_REGION", "eu-north-1")
@@ -20,10 +29,13 @@ TABLE_NAME = os.getenv("TABLE_NAME", "")
 TABLE_REGION = os.getenv("TABLE_REGION", "eu-west-1")
 EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")
 LLM_MODEL_ID = os.getenv("LLM_MODEL_ID", "eu.amazon.nova-micro-v1:0")
+MEMORY_ID = os.getenv("MEMORY_ID", "")
+MEMORY_REGION = os.getenv("MEMORY_REGION", "eu-west-1")
 
 # ── AWS Clients ──────────────────────────────────────────────────────────
 dynamodb_client = boto3.client("dynamodb", region_name=TABLE_REGION)
 bedrock_client = boto3.client("bedrock-runtime", region_name=TABLE_REGION)
+memory_client = MemoryClient(region_name=MEMORY_REGION) if MEMORY_ID else None
 
 
 def generate_embedding(text: str) -> list[float]:
@@ -153,20 +165,13 @@ def search_products(query: str) -> str:
 
 
 # ── Nova Sonic model ─────────────────────────────────────────────────────
-sonic_model = BidiNovaSonicModel(
+sonic_model = BedrockNovaSonicModel(
     model_id="amazon.nova-2-sonic-v1:0",
-    provider_config={
-        "audio": {
-            "voice": "tiffany",
-            "input_rate": 16000,
-            "output_rate": 16000,
-            "channels": 1,
-            "format": "pcm",
-        },
-        "inference": {},
-    },
-    client_config={
-        "region": BEDROCK_REGION,
+    region=BEDROCK_REGION,
+    voice="tiffany",
+    audio={
+        "input": {"sample_rate": 16000},
+        "output": {"sample_rate": 16000},
     },
 )
 
@@ -186,7 +191,97 @@ When a user describes what they're looking for, use the search_products tool to 
 Present results naturally in a conversational voice. Mention the product name, price, and a brief reason why it matches.
 If the user mentions a price constraint, include it in your search query.
 Always search before answering product questions. Do not make up products.
+
+You may be given context about the user's known preferences and facts from previous
+conversations (across voice and chat). Use them to personalize your suggestions and to
+avoid asking again for things you already know. When the user shares a new preference
+(a budget, a style, a use case, a size), acknowledge it naturally so it can be remembered.
+
 Keep your responses concise and natural for voice conversation."""
+
+
+def _decode_jwt_sub(token: str) -> str | None:
+    """Best-effort extraction of the `sub` claim from a JWT (no verification).
+    The runtime's JWT authorizer already validated the token before the request
+    reached the container; here we only read the identity to key the memory."""
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)  # pad base64url
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        return claims.get("sub")
+    except Exception:
+        return None
+
+
+def resolve_actor_id(websocket: WebSocket) -> str:
+    """Determine the memory actorId (the Cognito `sub`) for this connection.
+
+    AgentCore forwards the caller's bearer token and custom headers to the
+    container. We try, in order:
+      1. the `sub` from the Authorization bearer JWT,
+      2. an explicit custom header the client set on the connection,
+    and fall back to an anonymous id if neither is present.
+    """
+    headers = websocket.headers
+    auth = headers.get("authorization")
+    if auth:
+        token = auth[7:] if auth.lower().startswith("bearer ") else auth
+        sub = _decode_jwt_sub(token)
+        if sub:
+            return sub
+    custom = headers.get("x-amzn-bedrock-agentcore-runtime-custom-actorid")
+    if custom:
+        return custom
+    return "anonymous"
+
+
+def retrieve_memories(actor_id: str) -> list[str]:
+    """Fetch this user's long-term preferences and facts from AgentCore Memory.
+
+    The native session manager persists events for us, but it deliberately skips
+    long-term retrieval for BidiAgent (Nova Sonic), so we read the records here
+    and inject them into the system prompt ourselves. We key the lookup by the
+    Cognito sub, the same actorId the text chat agent uses, so a preference
+    learned in either channel is available in the other.
+    """
+    if not memory_client or not MEMORY_ID:
+        return []
+
+    namespaces = [f"/preferences/{actor_id}/", f"/facts/{actor_id}/"]
+    query = "user preferences, interests and facts"
+    context: list[str] = []
+    for namespace in namespaces:
+        try:
+            records = memory_client.retrieve_memories(
+                memory_id=MEMORY_ID,
+                namespace_path=namespace,
+                query=query,
+                top_k=5,
+            )
+            for record in records:
+                content = record.get("content", {}) if isinstance(record, dict) else {}
+                text = (content.get("text") or "").strip() if isinstance(content, dict) else ""
+                if text:
+                    context.append(text)
+        except Exception as e:
+            print(f"Memory retrieval failed for {namespace}: {e}")
+    return context
+
+
+def build_system_prompt(actor_id: str) -> str:
+    """Compose the voice agent's system prompt, injecting remembered context."""
+    context = retrieve_memories(actor_id)
+    if not context:
+        return SYSTEM_PROMPT
+    remembered = "\n".join(f"- {item}" for item in context)
+    print(f"Injected {len(context)} memory items for actor {actor_id[:8]}...")
+    return (
+        f"{SYSTEM_PROMPT}\n\n"
+        "Here is what you remember about this customer from previous "
+        "conversations, across both voice and chat. Use it to personalize your "
+        "suggestions, and confirm before assuming it still applies:\n"
+        f"{remembered}"
+    )
 
 
 @app.get("/ping")
@@ -197,10 +292,32 @@ async def ping():
 @app.websocket("/ws")
 async def voice_chat(websocket: WebSocket) -> None:
     """WebSocket endpoint for bidirectional voice streaming."""
+    actor_id = resolve_actor_id(websocket)
+    session_id = str(uuid.uuid4())
+    print(f"WebSocket connection for actor {actor_id[:8]}... session {session_id[:8]}...")
+
+    session_manager = None
+    if MEMORY_ID:
+        # The session manager persists this conversation's turns to AgentCore
+        # Memory (short-term events, later distilled into long-term preferences
+        # and facts). Note: it deliberately skips long-term *retrieval* for
+        # BidiAgent, so we inject remembered context into the system prompt
+        # ourselves (see build_system_prompt).
+        memory_config = AgentCoreMemoryConfig(
+            memory_id=MEMORY_ID,
+            session_id=session_id,
+            actor_id=actor_id,
+        )
+        session_manager = AgentCoreMemorySessionManager(
+            agentcore_memory_config=memory_config,
+            region_name=MEMORY_REGION,
+        )
+
     voice_agent = BidiAgent(
         model=sonic_model,
         tools=[search_products, stop_conversation],
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=build_system_prompt(actor_id),
+        session_manager=session_manager,
     )
 
     try:

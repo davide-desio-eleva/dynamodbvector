@@ -41,6 +41,23 @@ function base64url(input: string): string {
   return btoa(input).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
+/**
+ * Best-effort decode of the `sub` claim from a Cognito JWT (no verification).
+ * The runtime's JWT authorizer already validated the token; we only read the
+ * identity so the voice agent can key its memory to the same actorId the chat
+ * agent uses (the Cognito sub).
+ */
+function decodeJwtSub(token: string): string | undefined {
+  try {
+    const payload = token.split(".")[1];
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const json = atob(normalized);
+    return JSON.parse(json).sub as string | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface VoiceConnectionConfig {
   url: string;
   /** Subprotocols to pass to `new WebSocket(url, protocols)`, or undefined. */
@@ -70,12 +87,22 @@ export async function buildVoiceConnection(): Promise<VoiceConnectionConfig> {
     throw new Error("No Cognito token available. Are you signed in?");
   }
 
+  // The Cognito sub keys the shared AgentCore Memory. AgentCore does not forward
+  // the caller's JWT to the container, so we pass the sub explicitly as a custom
+  // runtime header. Values sent as `X-Amzn-Bedrock-AgentCore-Runtime-Custom-*`
+  // query params are delivered to the container as headers of the same name.
+  const actorId = session.tokens?.idToken?.payload?.sub ?? decodeJwtSub(token);
+
   const hostname = `bedrock-agentcore.${region}.amazonaws.com`;
   const encodedArn = encodeURIComponent(runtimeArn);
-  const url =
+  let url =
     `wss://${hostname}/runtimes/${encodedArn}/ws` +
     `?qualifier=DEFAULT` +
     `&X-Amzn-Bedrock-AgentCore-Runtime-Session-Id=${encodeURIComponent(sessionId)}`;
+  if (actorId) {
+    url +=
+      `&X-Amzn-Bedrock-AgentCore-Runtime-Custom-actorId=${encodeURIComponent(actorId)}`;
+  }
 
   const protocols = [
     `base64UrlBearerAuthorization.${base64url(token)}`,

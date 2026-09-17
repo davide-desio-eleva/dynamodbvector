@@ -6,7 +6,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as cr from "aws-cdk-lib/custom-resources";
 import * as ecrAssets from "aws-cdk-lib/aws-ecr-assets";
-import { CfnRuntime } from "aws-cdk-lib/aws-bedrockagentcore";
+import { CfnRuntime, CfnMemory } from "aws-cdk-lib/aws-bedrockagentcore";
 import { Stack } from "aws-cdk-lib";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -134,12 +134,56 @@ chatLambda.addToRolePolicy(
 // ─── Voice agent on AgentCore Runtime ────────────────────────────────────
 // Deploys the Strands + Nova Sonic voice agent (voice-agent/) as a
 // containerized AgentCore Runtime, reusing the Amplify Cognito User Pool
-// for authentication.
+// for authentication. The voice agent injects long-term memory manually.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const voiceStack = backend.createStack("VoiceAgentStack");
 const account = Stack.of(voiceStack).account;
 const region = Stack.of(voiceStack).region;
+
+// ─── AgentCore Memory (long-term, shared across both agents) ─────────────
+// One memory store, keyed per user via actorId (the Cognito `sub`). Both the
+// voice agent and the chat handler read/write here, so preferences learned in
+// one channel surface in the other. Two long-term strategies:
+//   - User Preference  → /preferences/{actorId}/   (subjective likes/dislikes)
+//   - Semantic (facts) → /facts/{actorId}/         (objective facts, e.g. size)
+//
+// Long-term extraction runs Bedrock models on your behalf, so the memory needs
+// an execution role allowed to invoke them.
+const memoryExecutionRole = new iam.Role(voiceStack, "AgentMemoryRole", {
+  assumedBy: new iam.ServicePrincipal("bedrock-agentcore.amazonaws.com", {
+    conditions: { StringEquals: { "aws:SourceAccount": account } },
+  }),
+});
+memoryExecutionRole.addToPolicy(
+  new iam.PolicyStatement({
+    actions: ["bedrock:InvokeModel"],
+    resources: ["arn:aws:bedrock:*::foundation-model/*"],
+  })
+);
+
+const agentMemory = new CfnMemory(voiceStack, "ShoppingAgentMemory", {
+  name: "shoppingAgentMemory",
+  // Raw short-term events are kept for 30 days before expiring.
+  eventExpiryDuration: 30,
+  memoryExecutionRoleArn: memoryExecutionRole.roleArn,
+  memoryStrategies: [
+    {
+      userPreferenceMemoryStrategy: {
+        name: "PreferenceLearner",
+        namespaces: ["/preferences/{actorId}/"],
+      },
+    },
+    {
+      semanticMemoryStrategy: {
+        name: "FactExtractor",
+        namespaces: ["/facts/{actorId}/"],
+      },
+    },
+  ],
+});
+
+const memoryId = agentMemory.attrMemoryId;
 
 // 1. Build the ARM64 container image from voice-agent/ and push it to ECR.
 const voiceImage = new ecrAssets.DockerImageAsset(voiceStack, "VoiceAgentImage", {
@@ -191,6 +235,22 @@ voiceRuntimeRole.addToPolicy(
   })
 );
 
+// AgentCore Memory: read/write short-term events and retrieve long-term records.
+voiceRuntimeRole.addToPolicy(
+  new iam.PolicyStatement({
+    actions: [
+      "bedrock-agentcore:CreateEvent",
+      "bedrock-agentcore:ListEvents",
+      "bedrock-agentcore:GetEvent",
+      "bedrock-agentcore:ListSessions",
+      "bedrock-agentcore:RetrieveMemoryRecords",
+      "bedrock-agentcore:ListMemoryRecords",
+      "bedrock-agentcore:GetMemoryRecord",
+    ],
+    resources: [agentMemory.attrMemoryArn, `${agentMemory.attrMemoryArn}/*`],
+  })
+);
+
 // CloudWatch logs for the runtime.
 voiceRuntimeRole.addToPolicy(
   new iam.PolicyStatement({
@@ -229,12 +289,25 @@ const voiceRuntime = new CfnRuntime(voiceStack, "VoiceAgentRuntime", {
     BEDROCK_REGION: "eu-north-1",
     EMBEDDING_MODEL_ID: "amazon.titan-embed-text-v2:0",
     LLM_MODEL_ID: "eu.amazon.nova-micro-v1:0",
+    MEMORY_ID: memoryId,
+    MEMORY_REGION: region,
   },
   authorizerConfiguration: {
     customJwtAuthorizer: {
       discoveryUrl,
       allowedClients: [userPoolClient.userPoolClientId],
     },
+  },
+  // AgentCore only forwards custom headers to the container if they are on this
+  // allowlist. The browser can't set WebSocket headers, so the frontend passes
+  // the Cognito sub as the query param
+  // `X-Amzn-Bedrock-AgentCore-Runtime-Custom-actorId`, which AgentCore delivers
+  // to the container as a header of the same name. This keeps the voice agent's
+  // memory actorId aligned with the chat agent (both use the Cognito sub).
+  requestHeaderConfiguration: {
+    requestHeaderAllowlist: [
+      "X-Amzn-Bedrock-AgentCore-Runtime-Custom-actorId",
+    ],
   },
 });
 
@@ -261,11 +334,31 @@ new iam.Policy(voiceStack, "VoiceAgentInvokePolicy", {
   ],
 });
 
-// 6. Export the runtime ARN + region so the frontend can build the
-// SigV4-signed WebSocket URL.
+// 6. Give the chat conversation handler access to the same memory store, so
+// the text agent shares the omnichannel memory with the voice agent. It reads
+// MEMORY_ID / MEMORY_REGION from the environment and retrieves/persists records
+// keyed by the same actorId (the Cognito sub).
+chatLambda.addEnvironment("MEMORY_ID", memoryId);
+chatLambda.addEnvironment("MEMORY_REGION", region);
+chatLambda.addToRolePolicy(
+  new iam.PolicyStatement({
+    actions: [
+      "bedrock-agentcore:CreateEvent",
+      "bedrock-agentcore:ListEvents",
+      "bedrock-agentcore:RetrieveMemoryRecords",
+      "bedrock-agentcore:ListMemoryRecords",
+      "bedrock-agentcore:GetMemoryRecord",
+    ],
+    resources: [agentMemory.attrMemoryArn, `${agentMemory.attrMemoryArn}/*`],
+  })
+);
+
+// 7. Export the runtime ARN + region so the frontend can build the
+// SigV4-signed WebSocket URL, plus the memory id for reference.
 backend.addOutput({
   custom: {
     VoiceAgentRuntimeArn: voiceRuntime.attrAgentRuntimeArn,
     VoiceAgentRegion: region,
+    MemoryId: memoryId,
   },
 });

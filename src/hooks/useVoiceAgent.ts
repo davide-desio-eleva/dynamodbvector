@@ -38,6 +38,13 @@ export function useVoiceAgent() {
   const playbackCtxRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<AudioBuffer[]>([]);
   const isPlayingRef = useRef(false);
+  // Accumulates streaming transcript deltas for the in-progress turn, per role.
+  // Nova Sonic (strands 1.56) emits `bidi_transcript_stream` chunks with a
+  // `delta` field and closes each turn with `bidi_transcript_complete`.
+  const partialTranscriptRef = useRef<{ user: string; assistant: string }>({
+    user: "",
+    assistant: "",
+  });
 
   // ── Audio playback queue ────────────────────────────────────────────
   const playNext = useCallback(() => {
@@ -105,53 +112,89 @@ export function useVoiceAgent() {
           queueAudio(data.audio, data.sample_rate || 16000);
         }
 
+        // Incremental transcript chunk. Accumulate the delta for the current
+        // turn and live-update the last bubble for that role, appending a fresh
+        // bubble when the speaker changes.
         if (data.type === "bidi_transcript_stream") {
           const role: "user" | "assistant" =
             data.role === "user" ? "user" : "assistant";
-          const isFinal = data.is_final !== false;
-          const text = (data.text || "").trim();
-          if (!text) return;
+          const delta = data.delta ?? "";
+          if (!delta) return;
 
-          // Commit EVERY transcript chunk as its own bubble. We never overwrite
-          // or hide anything the AI says. Only skip a chunk if it is an exact
-          // duplicate of the previous one (some providers resend the final of
-          // a partial we just showed).
+          partialTranscriptRef.current[role] += delta;
+          const accumulated = partialTranscriptRef.current[role].trim();
+          if (!accumulated) return;
+
           setState((prev) => {
             const history = prev.conversationHistory;
             const last = history[history.length - 1];
-            if (last && last.role === role && last.transcript === text) {
-              // Exact duplicate, ignore.
-              return { ...prev, isSpeaking: false };
+            if (last && last.role === role) {
+              // Same speaker still talking: update the in-progress bubble.
+              const updated = [...history];
+              updated[updated.length - 1] = {
+                ...last,
+                transcript: accumulated,
+              };
+              return {
+                ...prev,
+                conversationHistory: updated,
+                isSpeaking: role === "assistant",
+              };
+            }
+            // Speaker changed: start a new bubble.
+            return {
+              ...prev,
+              conversationHistory: [
+                ...history,
+                { role, transcript: accumulated, timestamp: new Date() },
+              ],
+              isSpeaking: role === "assistant",
+            };
+          });
+        }
+
+        // Turn finished: replace the in-progress bubble with the final
+        // transcript and reset the accumulator for that role.
+        if (data.type === "bidi_transcript_complete") {
+          const role: "user" | "assistant" =
+            data.role === "user" ? "user" : "assistant";
+          const transcript = (data.transcript ?? "").trim();
+          partialTranscriptRef.current[role] = "";
+          if (!transcript) {
+            setState((p) => ({ ...p, isSpeaking: false }));
+            return;
+          }
+
+          setState((prev) => {
+            const history = prev.conversationHistory;
+            const last = history[history.length - 1];
+            if (last && last.role === role) {
+              const updated = [...history];
+              updated[updated.length - 1] = {
+                ...last,
+                transcript,
+              };
+              return {
+                ...prev,
+                conversationHistory: updated,
+                isSpeaking: false,
+              };
             }
             return {
               ...prev,
               conversationHistory: [
                 ...history,
-                { role, transcript: text, timestamp: new Date() },
+                { role, transcript, timestamp: new Date() },
               ],
-              isSpeaking: role === "assistant" && !isFinal,
+              isSpeaking: false,
             };
           });
-        }
-
-        if (data.type === "bidi_text_response" && data.text) {
-          setState((prev) => ({
-            ...prev,
-            conversationHistory: [
-              ...prev.conversationHistory,
-              {
-                role: "assistant" as const,
-                transcript: data.text,
-                timestamp: new Date(),
-              },
-            ],
-            agentTranscript: "",
-          }));
         }
 
         if (data.type === "bidi_interruption") {
           audioQueueRef.current = [];
           isPlayingRef.current = false;
+          partialTranscriptRef.current = { user: "", assistant: "" };
           setState((p) => ({
             ...p,
             isSpeaking: false,
@@ -203,6 +246,7 @@ export function useVoiceAgent() {
     wsRef.current = null;
     audioQueueRef.current = [];
     isPlayingRef.current = false;
+    partialTranscriptRef.current = { user: "", assistant: "" };
 
     if (playbackCtxRef.current?.state !== "closed")
       playbackCtxRef.current?.close();

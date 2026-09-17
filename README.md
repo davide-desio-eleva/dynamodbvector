@@ -1,16 +1,19 @@
-# Semantic Search & Voice Agents on AWS: Amazon DynamoDB Vector Search, Amplify Gen 2, Amazon AgentCore & Amazon Nova Sonic
+# Semantic Search, Voice & Omnichannel Memory on AWS: Amazon DynamoDB Vector Search, Amplify Gen 2, Amazon AgentCore & Amazon Nova Sonic
 
 > Companion posts:
 > - [Your database is an AI tool: semantic search with Amazon DynamoDB Vector Search](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff)
-> - [Deploying a real-time voice agent with AgentCore Runtime and Amplify Gen 2 original post on dev.to](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl)
+> - [Deploying a real-time voice agent with AgentCore Runtime and Amplify Gen 2](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl)
+> - Omnichannel agents: sharing memory across a voice and a text agent with Amazon Bedrock AgentCore Memory (see [`blog/blog-3.md`](./blog/blog-3.md))
 
-A sample application that shows how to use **Amazon DynamoDB native vector search** to build semantic search over application data, how to expose that capability to AI agents as a tool, and how to deploy a real-time voice agent for it on **Amazon Bedrock AgentCore Runtime** — all inside a single AWS Amplify Gen 2 backend.
+A sample application that shows how to use **Amazon DynamoDB native vector search** to build semantic search over application data, how to expose that capability to AI agents as a tool, how to deploy a real-time voice agent for it on **Amazon Bedrock AgentCore Runtime**, and how to give a voice agent and a text agent a **shared memory** so they behave as one omnichannel assistant — all inside a single AWS Amplify Gen 2 backend.
 
 It demonstrates the same idea through three interfaces:
 
 1. **Search** — type a natural language query and get semantically matched products
 2. **Chat** — a conversational AI assistant (Amplify AI Kit) that calls the search as a tool
 3. **Voice** — a real-time voice agent (Strands + Amazon Nova 2 Sonic) that searches by speech, runnable locally or deployed to Amazon Bedrock AgentCore Runtime
+
+The chat and voice agents share a **long-term memory** (Amazon Bedrock AgentCore Memory), keyed to the signed-in user (the Cognito `sub`), so a preference learned in one channel is available in the other.
 
 > [!WARNING]
 > **This project is experimental.** It was built to explain how DynamoDB Vector Search works and how to combine it with AI agents. It is **not production ready**: it skips hardening, error handling, cost controls, and security review that a real workload would need. Use it to learn from and to adapt, not to deploy as-is.
@@ -58,6 +61,28 @@ Behind the scenes the search does four things:
 - **Search** goes through an Amplify Gen 2 custom query backed by a Lambda.
 - **Chat** uses the Amplify AI Kit conversation route with the same query exposed as a data tool.
 - **Voice** is a Python FastAPI server hosting a Strands `BidiAgent` with Nova 2 Sonic and the same search logic as a Python `@tool`. It runs locally during development, or gets deployed to **Amazon Bedrock AgentCore Runtime** as part of the same Amplify backend (containerized, WebSocket streaming, authenticated with the same Cognito user pool).
+
+### Shared memory (omnichannel)
+
+The chat and voice agents read and write the same **Amazon Bedrock AgentCore Memory** store, keyed by the Cognito `sub` as the `actorId`:
+
+```
+        Text chat agent                     Voice agent
+        (Amplify AI Kit)              (Strands BidiAgent, Nova Sonic)
+              │                                   │
+   retrieve + inject / write            retrieve + inject / write
+              │                                   │
+              └───────────────┬───────────────────┘
+                              ▼
+              Amazon Bedrock AgentCore Memory
+                  actorId = Cognito sub
+        /preferences/{actorId}/   +   /facts/{actorId}/
+        (User Preference strategy)   (Semantic strategy)
+```
+
+- The memory is keyed to the **user** (Cognito `sub`), not to the runtime session or the channel, which is what makes it omnichannel.
+- Two long-term strategies run extraction in the background: **User Preference** (subjective likes/dislikes) and **Semantic** (objective facts).
+- Both agents **retrieve** long-term records and inject them into the system prompt. Both **write** turns back so the strategies can extract from them. The voice agent uses the native Strands session manager to write; the chat handler writes manually. The memory store is the shared contract; the integration differs per runtime.
 
 ## Tech stack
 
@@ -150,8 +175,8 @@ So `npm run dev:agent` is only needed when iterating on the agent locally. Once 
 │   ├── data/
 │   │   ├── resource.ts           # AppSync schema, searchProducts query, chat conversation route
 │   │   ├── search-handler/       # Lambda: parse → embed → SearchVectors → filter
-│   │   └── conversationHandler.ts # Amplify AI Kit conversation handler
-│   └── backend.ts                # CDK: DynamoDB table + vector index + IAM
+│   │   └── conversationHandler.ts # Amplify AI Kit conversation handler + memory retrieve/inject/persist
+│   └── backend.ts                # CDK: DynamoDB table + vector index + AgentCore Runtime + AgentCore Memory + IAM
 ├── scripts/
 │   ├── products.json             # Sample product catalog
 │   └── seed-products.ts          # Embeds and loads products into DynamoDB
@@ -161,12 +186,14 @@ So `npm run dev:agent` is only needed when iterating on the agent locally. Once 
 │   ├── voice-connection.ts       # Builds the local or AgentCore (signed) WebSocket URL
 │   └── App.tsx                   # Search / Chat / Voice tabs
 ├── voice-agent/                  # Python voice agent (local + AgentCore container)
-│   ├── agent.py                  # Strands BidiAgent + Nova 2 Sonic + search_products tool
+│   ├── agent.py                  # Strands BidiAgent + Nova 2 Sonic + search_products tool + memory retrieve/inject
 │   ├── Dockerfile                # ARM64 image for AgentCore Runtime
 │   ├── requirements.txt
 │   └── start.sh
-├── blog.md                       # Companion article 1: DynamoDB Vector Search
-└── blog-2.md                     # Companion article 2: deploying the voice agent to AgentCore
+└── blog/                         # Companion articles
+    ├── blog-1.md                 # Article 1: DynamoDB Vector Search
+    ├── blog-2.md                 # Article 2: deploying the voice agent to AgentCore
+    └── blog-3.md                 # Article 3: omnichannel memory across the voice and chat agents
 ```
 
 ## Notes on DynamoDB Vector Search
@@ -183,6 +210,14 @@ So `npm run dev:agent` is only needed when iterating on the agent locally. Once 
 - Inbound auth uses a JWT authorizer pointed at the Amplify Cognito user pool's OIDC discovery URL, so the same signed-in users can reach the agent.
 - Browsers can't set custom headers on a WebSocket handshake, so the Cognito bearer token is passed via the `Sec-WebSocket-Protocol` subprotocol (base64url-encoded).
 
+## Notes on AgentCore Memory (omnichannel)
+
+- Memory is keyed to the **user**, not the channel: both agents use the Cognito `sub` as the `actorId`, so records written by one agent are read by the other.
+- The browser can't set WebSocket headers, so the voice frontend passes the `sub` to the container as the custom runtime header `X-Amzn-Bedrock-AgentCore-Runtime-Custom-actorId`. AgentCore only forwards custom headers that are on the runtime's `requestHeaderConfiguration.requestHeaderAllowlist`, so that header is allowlisted on the `CfnRuntime`.
+- Long-term extraction (preferences and facts) runs **asynchronously**. Right after a turn the raw event exists, but the distilled record may take a short while to appear, so an immediate retrieval can come back empty.
+- The native Strands session manager handles long-term **retrieval** only for the standard `Agent`, not for the streaming `BidiAgent`. For the voice agent, retrieval is done manually and injected into the system prompt; the session manager is used for writing turns.
+- The memory store is serverless and consumption-based (short-term events, stored long-term records, and retrieval calls). There is no fixed fee for the store itself. The AgentCore Runtime (serverless microVM mode) bills compute only while a session is active, and the ECR image is a few cents/month of storage, so left idle this stack costs almost nothing; you pay when it's used.
+
 ## Cleanup
 
 To tear down the AWS resources:
@@ -193,7 +228,8 @@ npx ampx sandbox delete
 
 ## Related
 
-Two companion articles walk through this project:
+Three companion articles walk through this project:
 
-- [`blog.md`](./blog.md) — DynamoDB Vector Search, semantic search, and exposing it to an AI agent as a tool ([original post on dev.to](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff))
-- [`blog-2.md`](./blog-2.md) — Deploying a real-time voice agent with AgentCore Runtime and Amplify Gen 2 ([original post on dev.to](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl))
+- [`blog/blog-1.md`](./blog/blog-1.md) — DynamoDB Vector Search, semantic search, and exposing it to an AI agent as a tool ([original post on dev.to](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff))
+- [`blog/blog-2.md`](./blog/blog-2.md) — Deploying a real-time voice agent with AgentCore Runtime and Amplify Gen 2 ([original post on dev.to](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl))
+- [`blog/blog-3.md`](./blog/blog-3.md) — Omnichannel agents: sharing long-term memory across the voice and text agents with Amazon Bedrock AgentCore Memory

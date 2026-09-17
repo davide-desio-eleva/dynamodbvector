@@ -1,6 +1,8 @@
 # Pinned to the versions verified locally. The container must match, otherwise
-# APIs like BidiNovaSonicModel may move between strands-agents releases.
-strands-agents[bidi]==1.54.0
+# APIs like BedrockNovaSonicModel or the AgentCore memory integration may move
+# between releases.
+strands-agents[bidi]==1.56.0
+bedrock-agentcore==1.23.1
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
 boto3==1.43.82
