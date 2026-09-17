@@ -1,4 +1,4 @@
-# Semantic Search, Voice & Omnichannel Memory on AWS: Amazon DynamoDB Vector Search, Amplify Gen 2, Amazon AgentCore & Amazon Nova Sonic
+# Semantic Search for Text, Voice & Omnichannel Agents on AWS: Amazon DynamoDB Vector Search, Amplify Gen 2, Amazon AgentCore & Amazon Nova Sonic
 
 > Companion posts:
 > - [Your database is an AI tool: semantic search with Amazon DynamoDB Vector Search](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff)

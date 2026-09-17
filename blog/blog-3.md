@@ -2,11 +2,13 @@
 
 In the [first article](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff) I built semantic product search on `Amazon DynamoDB` Vector Search and gave that capability to an AI agent as a tool. In the [second one](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl) I deployed the voice agent to `Amazon Bedrock AgentCore Runtime`, inside the same `Amplify Gen 2` backend.
 
-So now I have two agents that do the same job, help a user shop, through two different channels: a **text chat** (Amplify AI Kit) and a **voice agent** (Strands `BidiAgent` + `Amazon Nova Sonic`).
+So now I have two agents that do the same job, help a user shop, through two different channels: a **text chat** (Amplify AI Kit) and a **voice agent** (Strands `BidiAgent` using `Amazon Nova Sonic`).
 
-They work. But they are two strangers. Tell the voice agent you are into ultralight camping gear, then open the chat and ask for a recommendation: it has no idea who you are. Each conversation starts from zero.
+They work, but they are two strangers: tell the voice agent you are into ultralight camping gear, then open the chat and ask for a recommendation: it has no idea who you are. 
 
-**This article is about fixing that: giving both agents a shared memory so a preference learned in one channel shows up in the other.** That is what turns "a few agents" into an omnichannel experience.
+**Each conversation starts from zero, and this article is about fixing that: giving both agents a shared memory so a preference learned in one channel shows up in the other.** 
+
+That is what turns "a few agents" into an omnichannel experience.
 
 I'll use **Amazon Bedrock AgentCore Memory**, and the key idea is deciding what the memory is keyed to. Let me walk through it.
 
@@ -27,6 +29,16 @@ Before wiring anything, it helps to separate two things that both get called "me
 
 There is also a Summarization strategy, but for a shopping assistant the preferences and facts are what matter, so I'll use those two.
 
+### Why I only really need the long-term half
+
+Here's a nice consequence of the stack I'm already on: **short-term memory is basically handled for me on both channels, so the part I actually need to add is the long-term, cross-channel one.**
+
+On the chat side, the Amplify AI Kit already persists the conversation to `Amazon DynamoDB` and replays it on every turn. Following "make it cheaper" within a conversation just works, the AI Kit stores and reloads the message history automatically, no AgentCore short-term events required.
+
+On the voice side, the `BidiAgent` keeps the live session context inside the open bidirectional stream with Nova Sonic. Within a single voice session the model already has everything it just heard, so per-session short-term memory isn't something the agent needs me to add either.
+
+So the gap that AgentCore Memory fills here is specifically the **long-term, cross-session, cross-channel** one: the distilled preferences and facts that must outlive any single conversation and travel between the two agents. That's the piece neither the AI Kit nor the `BidiAgent` gives me on its own, and it's what the rest of this article wires up.
+
 ## 🔑 The one decision that matters: what is memory keyed to?
 
 Here is the insight that makes or breaks the whole thing.
@@ -39,17 +51,7 @@ My app already has a stable per-user identifier: the `Amazon Cognito` **`sub`**.
 
 So the design is one memory store, two agents, keyed by the Cognito `sub`:
 
-```text
-              Amazon Bedrock AgentCore Memory
-                   (actorId = Cognito sub)
-        /preferences/{actorId}/     /facts/{actorId}/
-                  ▲   ▲                  ▲   ▲
-        write/read│   │read/write        │   │
-                  │   │                  │   │
-        ┌─────────┘   └────────┐  ┌──────┘   └───────┐
-   Text chat agent        Voice agent (Nova Sonic)
-   (Amplify AI Kit)       (Strands BidiAgent)
-```
+![Image description](https://dev-to-uploads.s3.us-east-2.amazonaws.com/uploads/articles/mdz3wav4wticwa0ato3u.png)
 
 ## 🏗️ Step 1: create the memory in the Amplify backend
 
@@ -292,6 +294,14 @@ The test that matters is the bidirectional one.
 
 **Chat, then voice.** In the text chat I say I'm shopping for camping and I pick a DayHike 25L Pack. A minute later (long-term extraction is asynchronous, it takes a moment), I open the voice agent and ask, in Italian, what it recommends for me. It brings up camping and the pack, without me repeating anything. It read what the chat agent wrote.
 
+Here is me asking via chat articles for un upcoming hiking in October in Iceland: the agent suggested me some useful ones.
+
+![Image description](https://dev-to-uploads.s3.us-east-2.amazonaws.com/uploads/articles/8lbdzfo25f358prcw20a.png)
+
+After that I've made a call to the voice agent, asking more information about those article. I've never mentioned Iceland again, thus confirming it got this information from the memory.
+
+![Image description](https://dev-to-uploads.s3.us-east-2.amazonaws.com/uploads/articles/7q8i6r5sdsmevxjcc18f.png)
+
 **Voice, then chat.** The reverse works the same way. A preference spoken to the voice agent surfaces in the next chat turn.
 
 One thing to keep in mind when you try this: long-term memory is extracted **asynchronously**. Right after a turn, the raw event exists but the distilled preference might not yet, so a retrieve one second later can come back empty. Give the extraction a moment. That is the nature of long-term memory: it's the slow, considered kind, not the immediate transcript.
@@ -334,3 +344,9 @@ Three things stood out building this.
 ## 🙋 Who am I
 I'm [D. De Sio](https://www.linkedin.com/in/desiodavide) and I work as a Head of Software Engineering in [Eleva](https://eleva.it/).
 As of September 2026, I’m an [AWS Certified Solution Architect Professional](https://www.credly.com/badges/9929fdf2-7a3d-4013-9de6-57c80e4920b9/public_url) and [AWS Certified DevOps Engineer Professional](https://www.credly.com/badges/8c5a1487-191b-429e-8c2d-7cee43bf316b/public_url), but also a [User Group Leader (in Pavia)](https://www.linkedin.com/company/aws-user-group-pavia/), an **AWS Community Builder** and, last but not least, a #serverless enthusiast.
+
+## 🎉 AWS Community Day Italy
+
+The full agenda for [AWS Community Day Italy](https://www.awscommunityday.it/) is out!
+
+If you'd love to hear what the community has been working on, what they've learned, and what they want to share, come join us in Rome on October 2nd. 
