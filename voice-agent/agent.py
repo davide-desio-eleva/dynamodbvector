@@ -11,9 +11,16 @@ import base64
 import boto3
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models.bedrock import BedrockNovaSonicModel
 from strands.experimental.bidi.tools import stop_conversation
+from strands.experimental.bidi.hooks.events import (
+    BidiInterruptionEvent,
+    BidiAfterConnectionRestartEvent,
+)
+from strands.hooks import HookProvider, HookRegistry
+from strands.telemetry import StrandsTelemetry
 from strands import tool
 from bedrock_agentcore.memory.integrations.strands.config import (
     AgentCoreMemoryConfig,
@@ -31,6 +38,18 @@ EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2
 LLM_MODEL_ID = os.getenv("LLM_MODEL_ID", "eu.amazon.nova-micro-v1:0")
 MEMORY_ID = os.getenv("MEMORY_ID", "")
 MEMORY_REGION = os.getenv("MEMORY_REGION", "eu-west-1")
+
+logger = logging.getLogger("voice-agent")
+
+# ── Observability ─────────────────────────────────────────────────────────
+# Register the Strands tracer provider so the agent emits OpenTelemetry spans
+# (bidi_session, bidi_response, execute_tool, ...). In the container, the
+# managed ADOT pipeline on AgentCore Runtime collects and ships them to
+# CloudWatch, so we don't wire an exporter here. Locally, we print spans to the
+# console so you can inspect them while iterating.
+strands_telemetry = StrandsTelemetry()
+if not os.getenv("CONTAINER_ENV"):
+    strands_telemetry.setup_console_exporter()
 
 # ── AWS Clients ──────────────────────────────────────────────────────────
 dynamodb_client = boto3.client("dynamodb", region_name=TABLE_REGION)
@@ -213,6 +232,36 @@ def _decode_jwt_sub(token: str) -> str | None:
         return None
 
 
+class SessionStats(HookProvider):
+    """Counts barge-ins and reconnects over the life of a voice session.
+
+    Traces capture the shape of a session, but two health signals are easiest to
+    read as counters: how often the user interrupts the assistant (barge-ins)
+    and how often the model connection had to be re-established. A rising
+    interruption count usually means responses are too long for a voice
+    interface; a rising reconnect count means sessions keep hitting the
+    provider's timeout.
+    """
+
+    def __init__(self) -> None:
+        self.interruptions = 0
+        self.restarts = 0
+
+    def register_hooks(self, registry: HookRegistry) -> None:
+        registry.add_callback(BidiInterruptionEvent, self._on_interruption)
+        registry.add_callback(BidiAfterConnectionRestartEvent, self._on_restart)
+
+    def _on_interruption(self, event: BidiInterruptionEvent) -> None:
+        self.interruptions += 1
+        logger.info("Voice session interruption (%s)", event.reason)
+
+    def _on_restart(self, event: BidiAfterConnectionRestartEvent) -> None:
+        # exception is None when the reconnect succeeded.
+        if event.exception is None:
+            self.restarts += 1
+            logger.info("Voice session model connection restarted")
+
+
 def resolve_actor_id(websocket: WebSocket) -> str:
     """Determine the memory actorId (the Cognito `sub`) for this connection.
 
@@ -313,11 +362,15 @@ async def voice_chat(websocket: WebSocket) -> None:
             region_name=MEMORY_REGION,
         )
 
+    # `name` shows up in the trace as the `bidi_session <name>` span. The
+    # SessionStats hook counts barge-ins and reconnects for this session.
     voice_agent = BidiAgent(
         model=sonic_model,
         tools=[search_products, stop_conversation],
         system_prompt=build_system_prompt(actor_id),
         session_manager=session_manager,
+        name="voiceShoppingAgent",
+        hooks=[SessionStats()],
     )
 
     try:

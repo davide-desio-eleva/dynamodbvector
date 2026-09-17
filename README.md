@@ -4,8 +4,9 @@
 > - [Your database is an AI tool: semantic search with Amazon DynamoDB Vector Search](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff)
 > - [Deploying a real-time voice agent with AgentCore Runtime and Amplify Gen 2](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl)
 > - Omnichannel agents: sharing memory across a voice and a text agent with Amazon Bedrock AgentCore Memory (see [`blog/blog-3.md`](./blog/blog-3.md))
+> - Observing the agents: tracing the voice and chat agents with Amazon Bedrock AgentCore Observability and OpenTelemetry (see [`blog/blog-4.md`](./blog/blog-4.md))
 
-A sample application that shows how to use **Amazon DynamoDB native vector search** to build semantic search over application data, how to expose that capability to AI agents as a tool, how to deploy a real-time voice agent for it on **Amazon Bedrock AgentCore Runtime**, and how to give a voice agent and a text agent a **shared memory** so they behave as one omnichannel assistant — all inside a single AWS Amplify Gen 2 backend.
+A sample application that shows how to use **Amazon DynamoDB native vector search** to build semantic search over application data, how to expose that capability to AI agents as a tool, how to deploy a real-time voice agent for it on **Amazon Bedrock AgentCore Runtime**, how to give a voice agent and a text agent a **shared memory** so they behave as one omnichannel assistant, and how to **observe** those agents with distributed tracing — all inside a single AWS Amplify Gen 2 backend.
 
 It demonstrates the same idea through three interfaces:
 
@@ -193,7 +194,8 @@ So `npm run dev:agent` is only needed when iterating on the agent locally. Once 
 └── blog/                         # Companion articles
     ├── blog-1.md                 # Article 1: DynamoDB Vector Search
     ├── blog-2.md                 # Article 2: deploying the voice agent to AgentCore
-    └── blog-3.md                 # Article 3: omnichannel memory across the voice and chat agents
+    ├── blog-3.md                 # Article 3: omnichannel memory across the voice and chat agents
+    └── blog-4.md                 # Article 4: observability/tracing for the voice and chat agents
 ```
 
 ## Notes on DynamoDB Vector Search
@@ -218,6 +220,16 @@ So `npm run dev:agent` is only needed when iterating on the agent locally. Once 
 - The native Strands session manager handles long-term **retrieval** only for the standard `Agent`, not for the streaming `BidiAgent`. For the voice agent, retrieval is done manually and injected into the system prompt; the session manager is used for writing turns.
 - The memory store is serverless and consumption-based (short-term events, stored long-term records, and retrieval calls). There is no fixed fee for the store itself. The AgentCore Runtime (serverless microVM mode) bills compute only while a session is active, and the ECR image is a few cents/month of storage, so left idle this stack costs almost nothing; you pay when it's used.
 
+## Notes on observability
+
+- The voice agent runs on AgentCore Runtime, which ships a managed AWS Distro for OpenTelemetry (ADOT) pipeline that delivers telemetry to CloudWatch GenAI Observability. Strands emits OpenTelemetry GenAI spans natively, so tracing is mostly configuration, not code.
+- Two changes make the container emit traces: `aws-opentelemetry-distro>=0.18.0` in `requirements.txt`, and launching under the auto-instrumentation wrapper (`CMD ["opentelemetry-instrument", "python", "agent.py"]`). Running `python agent.py` directly skips ADOT and produces no spans.
+- Observability env vars are set on the `CfnRuntime` in `backend.ts`: `AGENT_OBSERVABILITY_ENABLED`, `OTEL_PYTHON_DISTRO`, `OTEL_PYTHON_CONFIGURATOR`, `OTEL_RESOURCE_ATTRIBUTES=service.name=...`, and `UNIFIED_TRACES_DESTINATION_ENABLED=true` (spans go to the agent's own log group's `spans` stream instead of the shared `aws/spans`). The runtime role needs `xray:PutTraceSegments`/`PutSpans`, `cloudwatch:PutMetricData`, and `logs:PutResourcePolicy`.
+- Enable CloudWatch Transaction Search once per account (indexing 1% of traces is free) so spans are searchable.
+- A voice `BidiAgent` traces as one session: a `bidi_session` parent with `bidi_connect`, `bidi_response`, `execute_tool`, and `bidi_connection_restart` children. Note `time_to_first_audio` (user-perceived latency) and `bidi_interruption` events (barge-ins). Nova Sonic emits one `bidi_response` span per content block, so there are far more response spans than spoken turns.
+- The system prompt is captured on the session span (`gen_ai.system_instructions`). Since the voice agent injects the user's remembered preferences into it, `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_unredacted_attributes=` redacts sensitive attributes so personal context isn't leaked into traces.
+- The chat handler runs on a Lambda managed by the AI Kit, so it's observed the Lambda-native way: structured JSON logs (queryable in CloudWatch Logs Insights) plus built-in Lambda metrics, rather than OpenTelemetry tracing.
+
 ## Cleanup
 
 To tear down the AWS resources:
@@ -233,3 +245,4 @@ Three companion articles walk through this project:
 - [`blog/blog-1.md`](./blog/blog-1.md) — DynamoDB Vector Search, semantic search, and exposing it to an AI agent as a tool ([original post on dev.to](https://dev.to/aws-builders/your-database-is-an-ai-tool-semantic-search-with-amazon-dynamodb-vector-search-46ff))
 - [`blog/blog-2.md`](./blog/blog-2.md) — Deploying a real-time voice agent with AgentCore Runtime and Amplify Gen 2 ([original post on dev.to](https://dev.to/aws-builders/deploying-a-real-time-voice-agent-with-agentcore-runtime-and-amplify-gen-2-45bl))
 - [`blog/blog-3.md`](./blog/blog-3.md) — Omnichannel agents: sharing long-term memory across the voice and text agents with Amazon Bedrock AgentCore Memory
+- [`blog/blog-4.md`](./blog/blog-4.md) — Observability: tracing the voice and chat agents with Amazon Bedrock AgentCore Observability, OpenTelemetry, and the distinctive BidiAgent span tree

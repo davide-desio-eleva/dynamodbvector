@@ -1,8 +1,12 @@
 # Pinned to the versions verified locally. The container must match, otherwise
 # APIs like BedrockNovaSonicModel or the AgentCore memory integration may move
 # between releases.
-strands-agents[bidi]==1.56.0
+strands-agents[bidi,otel]==1.56.0
 bedrock-agentcore==1.23.1
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
 boto3==1.43.82
+# AWS Distro for OpenTelemetry: the managed ADOT pipeline on AgentCore Runtime
+# collects the OTel spans Strands emits and ships them to CloudWatch. 0.18.0+ is
+# required to deliver spans to the agent's own log group (unified telemetry).
+aws-opentelemetry-distro==0.19.0

@@ -264,6 +264,23 @@ voiceRuntimeRole.addToPolicy(
   })
 );
 
+// Observability: let the ADOT pipeline in the container ship OTel spans and
+// metrics to CloudWatch (X-Ray Transaction Search + the Bedrock-AgentCore
+// metric namespace). logs:PutResourcePolicy lets AgentCore authorize X-Ray to
+// deliver spans to the agent's own log group (unified telemetry).
+voiceRuntimeRole.addToPolicy(
+  new iam.PolicyStatement({
+    actions: [
+      "xray:PutTraceSegments",
+      "xray:PutSpans",
+      "xray:PutSpansForIndexing",
+      "cloudwatch:PutMetricData",
+      "logs:PutResourcePolicy",
+    ],
+    resources: ["*"],
+  })
+);
+
 // 3. Reuse the Amplify Cognito User Pool for inbound JWT authentication.
 const userPool = backend.auth.resources.userPool;
 const userPoolClient = backend.auth.resources.userPoolClient;
@@ -291,6 +308,24 @@ const voiceRuntime = new CfnRuntime(voiceStack, "VoiceAgentRuntime", {
     LLM_MODEL_ID: "eu.amazon.nova-micro-v1:0",
     MEMORY_ID: memoryId,
     MEMORY_REGION: region,
+    // ─── Observability (ADOT → CloudWatch GenAI Observability) ───────────
+    // Turns on the AWS Distro for OpenTelemetry pipeline so the OTel spans
+    // Strands emits (bidi_session, bidi_response, execute_tool, ...) are
+    // collected and shipped to CloudWatch. One-time per account: enable
+    // CloudWatch Transaction Search (see README).
+    AGENT_OBSERVABILITY_ENABLED: "true",
+    OTEL_PYTHON_DISTRO: "aws_distro",
+    OTEL_PYTHON_CONFIGURATOR: "aws_configurator",
+    OTEL_RESOURCE_ATTRIBUTES: "service.name=voiceShoppingAgent",
+    // Deliver spans to this agent's own log group (unified telemetry) instead
+    // of the shared aws/spans group. Requires ADOT >= 0.18.0.
+    UNIFIED_TRACES_DESTINATION_ENABLED: "true",
+    // The voice agent injects the user's remembered preferences into the
+    // system prompt (see the memory article). By default Strands captures the
+    // system prompt verbatim on the session span (gen_ai.system_instructions),
+    // which would leak that personal context into traces. This opt-in redacts
+    // all sensitive attributes, so the prompt shows as [REDACTED].
+    OTEL_SEMCONV_STABILITY_OPT_IN: "gen_ai_unredacted_attributes=",
   },
   authorizerConfiguration: {
     customJwtAuthorizer: {

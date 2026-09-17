@@ -23,6 +23,20 @@ const memoryClient = MEMORY_ID
 const PREFERENCES_NAMESPACE = "/preferences";
 const FACTS_NAMESPACE = "/facts";
 
+// ── Structured logging ────────────────────────────────────────────────────
+// The voice agent runs on AgentCore Runtime and gets rich OpenTelemetry traces
+// for free. This conversation handler runs on a Lambda whose runtime is managed
+// by the AI Kit, so instead of tracing we emit structured JSON log lines. They
+// land in CloudWatch Logs and are queryable in Logs Insights (e.g. count how
+// often memory was injected). We log counts and a short actor prefix only, never
+// the remembered content itself, which is personal.
+function logMemoryEvent(
+  event: string,
+  fields: Record<string, string | number | boolean>
+): void {
+  console.log(JSON.stringify({ component: "memory", event, ...fields }));
+}
+
 // ── JWT helpers ─────────────────────────────────────────────────────────
 // The AI Kit forwards the caller's Cognito access token on the conversation
 // event headers. We only need the `sub` claim to key the memory, so we decode
@@ -203,10 +217,18 @@ export const handler = async (event: ConversationTurnEvent) => {
       event.modelConfiguration.systemPrompt = `${preamble}\n\n${event.modelConfiguration.systemPrompt}`;
     }
 
+    logMemoryEvent("retrieved", {
+      actor: actorId.slice(0, 8),
+      preferences: preferences.length,
+      facts: facts.length,
+      injected: Boolean(preamble),
+    });
+
     // Persist the incoming user turn so the long-term strategies can extract
     // new preferences/facts from it.
     if (userText) {
       await persistUserTurn(actorId, event.conversationId, userText);
+      logMemoryEvent("persisted", { actor: actorId.slice(0, 8) });
     }
   }
 
